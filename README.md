@@ -1,1 +1,1 @@
-# -Ticket_Selector_Equatorial
+# Ticket_Selector_Equatorial
