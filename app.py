@@ -21,9 +21,14 @@
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait, Select
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import Select
 from time import sleep
 
 driver = webdriver.Chrome()
+wait = WebDriverWait(driver, 30)
 
 driver.get('https://pa.equatorialenergia.com.br/siteantigo/sua-conta/emitir-segunda-via/')
 
@@ -65,6 +70,103 @@ botaoEntrar = driver.find_element(By.XPATH, "//button[@id='envia-identificador']
 botaoEntrar.click()
 
 
+#fazer a verificação de cada conta contrato
 
+wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#conta_contrato option")) > 0)
+
+options = driver.find_elements(By.CSS_SELECTOR, "#conta_contrato option")
+
+print("Quantidade de options encontradas:", len(options))
+
+lista_contratos = []
+
+for option in options:
+    texto = option.text.strip()
+    valor = option.get_attribute("value")
+
+    if valor:
+        lista_contratos.append({
+            "texto": texto,
+            "value": valor
+        })
+
+print("Lista final:", lista_contratos)
+
+# =========================================================
+# FUNÇÃO PARA PROCESSAR CADA CONTRATO
+# =========================================================
+
+def processar_contrato(contrato):
+
+    print("Processando contrato:", contrato["texto"])
+
+    # Sempre recriar o Select
+    select = Select(driver.find_element(By.ID, "conta_contrato"))
+    select.select_by_value(contrato["value"])
+
+    # Esperar atualizar tabela
+    wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+    sleep(3)
+
+    # ---------------------------------------------------------
+    #5 - clicar em exibir apenas faturas não pagas
+    # ---------------------------------------------------------
+
+    try:
+        checkbox = driver.find_element(By.ID, "apenas-vencidas")
+        if not checkbox.is_selected():
+            checkbox.click()
+            sleep(2)
+    except:
+        pass
+
+    # ---------------------------------------------------------
+    #6 - clicar na fatura que aparecer
+    # ---------------------------------------------------------
+
+    botoes_ver_fatura = driver.find_elements(By.XPATH, "//tr[contains(., 'default-status em-aberto')]")
+
+    if len(botoes_ver_fatura) == 0:
+        print("Nenhuma fatura encontrada")
+        return
+
+    print("Faturas encontradas:", len(botoes_ver_fatura))
+
+    for i in range(len(botoes_ver_fatura)):
+
+        # Rebuscar elementos (evita StaleElement)
+        botoes_ver_fatura = driver.find_elements(By.XPATH, "//button[contains(., 'Ver fatura')]")
+
+        botoes_ver_fatura[i].click()
+
+        # ---------------------------------------------------------
+        #7 - clicar em baixar
+        # ---------------------------------------------------------
+
+        wait.until(
+            EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Baixar')]"))
+        )
+
+        botao_download = driver.find_element(By.XPATH, "//button[contains(., 'Baixar')]")
+        botao_download.click()
+
+        print("Boleto baixado")
+
+        sleep(3)
+
+        driver.back()
+
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+
+# =========================================================
+# LOOP PRINCIPAL - PERCORRER TODOS CONTRATOS
+# =========================================================
+
+for contrato in lista_contratos:
+    try:
+        processar_contrato(contrato)
+    except Exception as e:
+        print("⚠ Erro no contrato:", contrato["texto"])
+        print("Motivo:", e)
 
 input('')
