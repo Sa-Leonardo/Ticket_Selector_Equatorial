@@ -26,9 +26,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import Select
 from time import sleep
+from datetime import datetime
 
 driver = webdriver.Chrome()
 wait = WebDriverWait(driver, 30)
+
 
 driver.get('https://pa.equatorialenergia.com.br/siteantigo/sua-conta/emitir-segunda-via/')
 
@@ -61,9 +63,13 @@ sleep(3)
 
 #4 - Clicar no campo de digitar email (serve como senha)
 
-digitarEmail = driver.find_element(By.XPATH, "//input[@placeholder='email@empresa.com']")
-digitarEmail.send_keys("adm.financeiro@mov.pro.br")
-sleep(5)
+email = "adm.financeiro@mov.pro.br"
+
+campo_email = driver.find_element(By.XPATH, "//input[@placeholder='email@empresa.com']")
+
+for letra in email:
+    campo_email.send_keys(letra)
+    sleep(0.2)
 
 
 botaoEntrar = driver.find_element(By.XPATH, "//button[@id='envia-identificador']")
@@ -103,60 +109,112 @@ def processar_contrato(contrato):
     # Sempre recriar o Select
     select = Select(driver.find_element(By.ID, "conta_contrato"))
     select.select_by_value(contrato["value"])
+    sleep(5)
 
     # Esperar atualizar tabela
     wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
-    sleep(3)
+    sleep(8)
 
     # ---------------------------------------------------------
     #5 - clicar em exibir apenas faturas não pagas
     # ---------------------------------------------------------
 
-    try:
-        checkbox = driver.find_element(By.ID, "apenas-vencidas")
-        if not checkbox.is_selected():
-            checkbox.click()
-            sleep(2)
-    except:
-        pass
+
+    checkbox = driver.find_element(By.ID, "apenas-vencidas")
+    checkbox.click()
+
+    # try:
+    #     checkbox = driver.find_element(By.ID, "apenas-vencidas")
+    #     if not checkbox.is_selected():
+    #         checkbox.click()
+    #         sleep(2)
+    # except:
+    #     pass
 
     # ---------------------------------------------------------
     #6 - clicar na fatura que aparecer
     # ---------------------------------------------------------
 
-    botoes_ver_fatura = driver.find_elements(By.XPATH, "//tr[contains(., 'default-status em-aberto')]")
+        # pegar faturas em aberto
+    faturas = driver.find_elements(By.CSS_SELECTOR, "tr.default-status.em-aberto")
 
-    if len(botoes_ver_fatura) == 0:
+    if not faturas:
         print("Nenhuma fatura encontrada")
         return
 
-    print("Faturas encontradas:", len(botoes_ver_fatura))
+    mes_atual = datetime.now().strftime("%m/%Y")
 
-    for i in range(len(botoes_ver_fatura)):
+    for fatura in faturas:
 
-        # Rebuscar elementos (evita StaleElement)
-        botoes_ver_fatura = driver.find_elements(By.XPATH, "//button[contains(., 'Ver fatura')]")
+        try:
+            referencia = fatura.find_element(By.CLASS_NAME, "referencia_legada").text.strip()
+            vencimento = fatura.find_element(By.CLASS_NAME, "bill-date").text.split("\n")[-1].strip()
 
-        botoes_ver_fatura[i].click()
+            print(f"📄 {referencia} | {vencimento}")
 
-        # ---------------------------------------------------------
-        #7 - clicar em baixar
-        # ---------------------------------------------------------
+            # validar mês atual
+            if referencia != mes_atual:
+                continue
 
-        wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Baixar')]"))
-        )
+            print("✅ - Fatura do mês atual encontrada")
 
-        botao_download = driver.find_element(By.XPATH, "//button[contains(., 'Baixar')]")
-        botao_download.click()
+            # clicar na linha
+            driver.execute_script("arguments[0].click();", fatura)
 
-        print("Boleto baixado")
+            # esperar botões aparecerem
+            wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(@class,'copy-code-button')]")))
 
-        sleep(3)
+            sleep(5)
 
-        driver.back()
+            # tentar copiar código de barras
+            try:
+                botao_copiar = driver.find_element(By.XPATH, "//a[contains(@class,'copy-code-button')]")
+                botao_copiar.click()
 
-        wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+                sleep(4)
+
+                codigo = driver.execute_script("return navigator.clipboard.readText();")
+
+                salvar_codigo(contrato["texto"], codigo, vencimento)
+
+                print("📌 Código de barras salvo")
+
+            except Exception as e:
+                print("⚠️ Não conseguiu copiar, tentando baixar PDF")
+
+                # clicar em ver fatura
+                botao_ver = driver.find_element(By.XPATH, "//button[contains(., 'Ver fatura')]")
+                botao_ver.click()
+
+                wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Baixar')]")))
+
+                botao_download = driver.find_element(By.XPATH, "//button[contains(., 'Baixar')]")
+                botao_download.click()
+
+                print("📥 PDF baixado")
+
+                salvar_log_pdf(contrato["texto"], vencimento)
+
+                sleep(3)
+
+            break  # só pega 1 fatura por contrato
+
+        except Exception as e:
+            print("Erro na fatura:", e)
+
+# =========================================================
+# SALVAR DADOS DO CONTRATO E CÓDIGO DE BARRAS
+# =========================================================           
+
+
+def salvar_codigo(contrato, codigo, vencimento):
+    with open("codigos.txt", "a", encoding="utf-8") as f:
+        f.write(f"Contrato: {contrato} | Código: {codigo} | Vencimento: {vencimento}\n")
+
+
+def salvar_log_pdf(contrato, vencimento):
+    with open("pdfs.txt", "a", encoding="utf-8") as f:
+        f.write(f"Contrato: {contrato} | PDF baixado | Vencimento: {vencimento}\n")
 
 # =========================================================
 # LOOP PRINCIPAL - PERCORRER TODOS CONTRATOS
@@ -166,7 +224,7 @@ for contrato in lista_contratos:
     try:
         processar_contrato(contrato)
     except Exception as e:
-        print("⚠ Erro no contrato:", contrato["texto"])
+        print("Erro no contrato:", contrato["texto"])
         print("Motivo:", e)
 
 input('')
