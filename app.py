@@ -28,11 +28,16 @@ from selenium.webdriver.support.ui import Select
 from time import sleep
 from datetime import datetime
 
-driver = webdriver.Chrome()
+chrome_options = webdriver.ChromeOptions()
+chrome_options.add_argument("--incognito")
+
+driver = webdriver.Chrome(options=chrome_options)
 wait = WebDriverWait(driver, 30)
 
-
 driver.get('https://pa.equatorialenergia.com.br/siteantigo/sua-conta/emitir-segunda-via/')
+
+#LIMPAR OS COOKIES E CACHE
+
 
 #1.1 - fechar aba de LGPD
 
@@ -74,13 +79,14 @@ for letra in email:
 
 botaoEntrar = driver.find_element(By.XPATH, "//button[@id='envia-identificador']")
 botaoEntrar.click()
+sleep(2)
 
 
-#fazer a verificação de cada conta contrato
+# esperar o select existir
+wait.until(EC.presence_of_element_located((By.ID, "conta_contrato")))
 
-wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#conta_contrato option")) > 0)
-
-options = driver.find_elements(By.CSS_SELECTOR, "#conta_contrato option")
+# depois esperar as opções carregarem
+options = wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#conta_contrato option")) > 1)
 
 print("Quantidade de options encontradas:", len(options))
 
@@ -120,8 +126,11 @@ def processar_contrato(contrato):
     # ---------------------------------------------------------
 
 
-    checkbox = driver.find_element(By.ID, "apenas-vencidas")
-    checkbox.click()
+    checkbox = wait.until(
+    EC.element_to_be_clickable((By.ID, "apenas-vencidas")))
+
+    driver.execute_script("arguments[0].click();", checkbox)
+    sleep(3)
 
     # try:
     #     checkbox = driver.find_element(By.ID, "apenas-vencidas")
@@ -131,12 +140,15 @@ def processar_contrato(contrato):
     # except:
     #     pass
 
+    wait.until(EC.staleness_of(driver.find_element(By.TAG_NAME, "table")))
+    wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+
     # ---------------------------------------------------------
     #6 - clicar na fatura que aparecer
     # ---------------------------------------------------------
 
         # pegar faturas em aberto
-    faturas = driver.find_elements(By.CSS_SELECTOR, "tr.default-status.em-aberto")
+    faturas = driver.find_elements(By.XPATH, "//table[contains(@class,'default-status em-aberto')]")
 
     if not faturas:
         print("Nenhuma fatura encontrada")
@@ -147,7 +159,7 @@ def processar_contrato(contrato):
     for fatura in faturas:
 
         try:
-            referencia = fatura.find_element(By.CLASS_NAME, "referencia_legada").text.strip()
+            referencia = fatura.find_element(By.XPATH, "referencia_legada").text.strip()
             vencimento = fatura.find_element(By.CLASS_NAME, "bill-date").text.split("\n")[-1].strip()
 
             print(f"📄 {referencia} | {vencimento}")
